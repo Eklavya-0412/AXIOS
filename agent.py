@@ -221,6 +221,7 @@ class NetworkAgentState(TypedDict):
     action_result: str
     risk_level: str
     human_approved: bool
+    needs_rollback: bool
     reasoning_log: Annotated[List[str], operator.add]
     action_history: Annotated[List[str], operator.add]
 
@@ -330,6 +331,12 @@ def human_approval_node(state: NetworkAgentState):
     return {"human_approved": True, "reasoning_log": [f"Human Approval [{now_ist()}]: APPROVED by NOC."]}
 
 def act_node(state: NetworkAgentState):
+    try:
+        import requests
+        requests.post("http://127.0.0.1:8000/api/config/backup")
+    except:
+        pass
+
     tool_name = state.get("recommended_action", "")
     try:
         args = json.loads(state.get("action_args", "{}"))
@@ -343,6 +350,46 @@ def act_node(state: NetworkAgentState):
         "action_result": result,
         "reasoning_log": [f"Executor [{now_ist()}]: {result}"],
         "action_history": [f"{tool_name} | {args} | {result}"],
+    }
+
+def verify_node(state: NetworkAgentState):
+    p = state.get("anomaly_payload", {})
+    router = p.get("router", "Unknown")
+    _time.sleep(3)
+    needs_rollback = False
+    log = f"Verifier [{now_ist()}]: Health verified."
+    try:
+        import requests
+        res = requests.get(f"http://127.0.0.1:8000/api/config/verify_health?router_name={router}").json()
+        if res.get("status") == "success":
+            is_healthy = res.get("is_healthy", False)
+            if not is_healthy:
+                needs_rollback = True
+                log = f"Verifier [{now_ist()}]: Health check FAILED. Active flags: {res.get('flags')}"
+            else:
+                log = f"Verifier [{now_ist()}]: Health check PASSED."
+    except Exception as e:
+        log = f"Verifier [{now_ist()}]: API error: {e}"
+        
+    return {
+        "needs_rollback": needs_rollback,
+        "reasoning_log": [log]
+    }
+
+def rollback_node(state: NetworkAgentState):
+    log = f"Rollback [{now_ist()}]: Action failed to resolve anomaly. Configuration rolled back."
+    try:
+        import requests
+        requests.post("http://127.0.0.1:8000/api/config/rollback")
+    except Exception as e:
+        log = f"Rollback [{now_ist()}]: Rollback failed: {e}"
+        
+    return {
+        "action_result": "FAILED - ROLLED BACK",
+        "reasoning_log": [log],
+        "recommended_action": "escalate_to_noc",
+        "action_args": json.dumps({"issue_summary": "Rollback triggered."}),
+        "risk_level": "high"
     }
 
 def learn_node(state: NetworkAgentState):
@@ -382,6 +429,8 @@ workflow.add_node("retrieve", retrieve_node)
 workflow.add_node("reason_and_decide", reason_and_decide_node)
 workflow.add_node("human_approval", human_approval_node)
 workflow.add_node("act", act_node)
+workflow.add_node("verify", verify_node)
+workflow.add_node("rollback", rollback_node)
 workflow.add_node("learn", learn_node)
 
 workflow.set_entry_point("observe")
@@ -391,9 +440,14 @@ workflow.add_edge("retrieve", "reason_and_decide")
 def route_decision(state):
     return "human_approval" if state.get("risk_level") == "high" else "act"
 
+def verify_decision(state):
+    return "rollback" if state.get("needs_rollback") else "learn"
+
 workflow.add_conditional_edges("reason_and_decide", route_decision)
 workflow.add_edge("human_approval", "act")
-workflow.add_edge("act", "learn")
+workflow.add_edge("act", "verify")
+workflow.add_conditional_edges("verify", verify_decision)
+workflow.add_edge("rollback", "human_approval")
 workflow.add_edge("learn", END)
 
 checkpointer = MemorySaver()

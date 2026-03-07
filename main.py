@@ -18,13 +18,18 @@ from zoneinfo import ZoneInfo
 from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
+import joblib
+
+# ML Model Configuration
+ML_MODEL_PATH = Path("models/telecom_anomaly_model.pkl")
+ML_MODEL = None
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 
 # ─────────────────────────────────────────────
@@ -102,6 +107,9 @@ class AnomalyRequest(BaseModel):
 
 class ApprovalAction(BaseModel):
     thread_id: str
+
+class HardResetRequest(BaseModel):
+    router_name: str
 
 # ─────────────────────────────────────────────
 # Telemetry from Digital Twin
@@ -208,11 +216,29 @@ async def telemetry_background_task():
         LATENCY_HISTORY.append(point["latency_ms"])
         write_jsonl_log(point)
 
-        is_bad = (
-            point["packet_loss_pct"] > 10.0
-            or point["cpu_utilization_pct"] > 90.0
-            or abs(calculate_zscore(point["latency_ms"], LATENCY_HISTORY)) > 3.0
-        )
+        is_bad = False
+        
+        if ML_MODEL is not None:
+            import pandas as pd
+            try:
+                features = pd.DataFrame([{
+                    "latency_ms": point["latency_ms"],
+                    "packet_loss_pct": point["packet_loss_pct"],
+                    "cpu_utilization": point["cpu_utilization_pct"],
+                    "bgp_flaps": point["bgp_flaps_per_min"]
+                }])
+                prediction = ML_MODEL.predict(features)
+                is_bad = bool(prediction[0] == 1)
+            except Exception as e:
+                pass
+                
+        # Fallback to rules engine if model fails or isn't loaded
+        if ML_MODEL is None and not is_bad:
+            is_bad = (
+                point["packet_loss_pct"] > 10.0
+                or point["cpu_utilization_pct"] > 90.0
+                or abs(calculate_zscore(point["latency_ms"], LATENCY_HISTORY)) > 3.0
+            )
 
         if is_bad and point["status"] != "rebooting":
             router = point["router"]
@@ -270,6 +296,14 @@ async def telemetry_background_task():
 # ─────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app):
+    global ML_MODEL
+    try:
+        if ML_MODEL_PATH.exists():
+            ML_MODEL = joblib.load(ML_MODEL_PATH)
+            print(f"Loaded Custom ML Model securely from {ML_MODEL_PATH}")
+    except Exception as e:
+        print(f"Failed to load ML model: {e}")
+        
     task = asyncio.create_task(telemetry_background_task())
     yield
     task.cancel()
@@ -324,6 +358,63 @@ def simulate_anomaly(req: AnomalyRequest):
         write_jsonl_log(p)
 
     return {"status": "success", "message": f"network_config.json updated: {req.anomaly_type}=true on {req.router_name}", "timestamp": now_ist()}
+
+# ─────────────────────────────────────────────
+# Backup / Rollback & Hard Reset
+# ─────────────────────────────────────────────
+_config_backup = {}
+
+@app.post("/api/config/backup")
+def backup_config():
+    global _config_backup
+    _config_backup = read_config()
+    return {"status": "success", "message": "Configuration backed up"}
+
+@app.post("/api/config/rollback")
+def rollback_config():
+    global _config_backup
+    if not _config_backup:
+        raise HTTPException(400, "No backup available")
+    write_config(_config_backup)
+    return {"status": "success", "message": "Configuration rolled back"}
+
+@app.get("/api/config/verify_health")
+def verify_health(router_name: str):
+    config = read_config()
+    if router_name not in config:
+        raise HTTPException(404, "Router not found")
+    state = config[router_name]
+    flags = [k for k, v in state.items() if isinstance(v, bool) and v]
+    # Healthy if no flags AND status is online
+    is_healthy = (len(flags) == 0) and (state.get("status") == "online")
+    return {"status": "success", "is_healthy": is_healthy, "flags": flags}
+
+@app.post("/api/resolve/hard_reset")
+def hard_reset(req: HardResetRequest, bg_tasks: BackgroundTasks):
+    config = read_config()
+    if req.router_name not in config:
+        raise HTTPException(404, "Router not found")
+
+    # Set to rebooting immediately
+    config[req.router_name]["status"] = "rebooting"
+    write_config(config)
+
+    bg_tasks.add_task(reboot_sequence_sync, req.router_name)
+    
+    return {"status": "success", "message": f"{req.router_name} is rebooting for 5 seconds."}
+
+def reboot_sequence_sync(router):
+    import time
+    time.sleep(5)
+    cfg = read_config()
+    if router in cfg:
+        cfg[router]["status"] = "online"
+        cfg[router]["current_route"] = "Primary-Link-A"
+        cfg[router]["is_congested"] = False
+        cfg[router]["bgp_down"] = False
+        cfg[router]["cpu_spiking"] = False
+        cfg[router]["interface_flapping"] = False
+        write_config(cfg)
 
 # ─────────────────────────────────────────────
 # Human-in-the-Loop

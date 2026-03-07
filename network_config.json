@@ -1,7 +1,7 @@
 {
   "Core-Router-Mumbai": {
     "status": "online",
-    "current_route": "Backup-via-Core-Router-Hyderabad",
+    "current_route": "Primary-Link-A",
     "is_congested": false,
     "bgp_down": false,
     "cpu_spiking": false,

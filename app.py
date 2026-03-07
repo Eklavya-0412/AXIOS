@@ -112,17 +112,23 @@ with st.sidebar:
             route = router_state.get("current_route", "?")
             flags = [k for k, v in router_state.items() if isinstance(v, bool) and v]
 
-            if status == "rebooting":
-                icon = "🔄"
-            elif flags:
-                icon = "🔴"
-            else:
-                icon = "🟢"
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                if status == "rebooting":
+                    icon = "🔄"
+                elif flags:
+                    icon = "�"
+                else:
+                    icon = "🟢"
 
-            st.markdown(f"{icon} **{router_name}**")
-            st.caption(f"Status: {status} | Route: {route}")
-            if flags:
-                st.caption(f"Flags: {', '.join(flags)}")
+                st.markdown(f"{icon} **{router_name}**")
+                st.caption(f"Status: {status} | Route: {route}")
+                if flags:
+                    st.caption(f"Flags: {', '.join(flags)}")
+            with c2:
+                if st.button("Reset", key=f"hr_{router_name}"):
+                    fetch_api("/api/resolve/hard_reset", "POST", {"router_name": router_name})
+                    st.rerun()
     else:
         st.warning("Cannot read config.")
 
@@ -162,11 +168,12 @@ if config_data and "error" not in config_data:
         status = r_state.get("status", "online")
         flags = [k for k, v in r_state.items() if isinstance(v, bool) and v]
         
-        color = "#22c55e" # Green
         if status == "rebooting":
-            color = "#6b7280" # Grey
-        elif flags:
-            color = "#ef4444" # Red
+            color = "#7f7f7f" # Dim Grey
+        elif "Edge" in router_name:
+            color = "#9467bd" # Purple
+        else:
+            color = "#1f77b4" # Dark Blue
             
         nodes.append(Node(id=router_name, label=router_name, size=20, color=color))
         
@@ -174,15 +181,16 @@ if config_data and "error" not in config_data:
         
         if route.startswith("Backup-via-"):
             target = route.split("Backup-via-")[1]
-            edges.append(Edge(source=router_name, target=target, label="BACKUP", color="#f59e0b", width=3))
+            edges.append(Edge(source=router_name, target=target, label="BACKUP", color="#2ca02c", width=3))
         else:
-            edge_color = "#ef4444" if r_state.get("is_congested") else "#22c55e"
+            edge_color = "#ff7f0e" if r_state.get("is_congested") else "#2ca02c"
+            edge_width = 5 if r_state.get("is_congested") else 3
             if "Edge" in router_name:
-                edges.append(Edge(source=router_name, target=router_name.replace("Edge-", "Core-"), label="PRIMARY", color=edge_color, width=2))
+                edges.append(Edge(source=router_name, target=router_name.replace("Edge-", "Core-"), label="PRIMARY", color=edge_color, width=edge_width))
             else:
-                edges.append(Edge(source=router_name, target="Internet", label="PRIMARY", color=edge_color, width=2))
+                edges.append(Edge(source=router_name, target="Internet", label="PRIMARY", color=edge_color, width=edge_width))
                 
-    config = Config(height=400, directed=True, nodeHighlightBehavior=True, highlightColor="#F7A7A6", collapsible=False, physics=True)
+    config = Config(height=450, width="100%", directed=True, nodeHighlightBehavior=True, highlightColor="#F7A7A6", collapsible=False, interaction={"zoomView": False, "dragView": False}, physics={"enabled": False})
     
     agraph(nodes=nodes, edges=edges, config=config)
 else:
@@ -232,6 +240,9 @@ if st.session_state.last_approval_action:
 # ─────────────────────────────────────────────
 # Metrics + Chart
 # ─────────────────────────────────────────────
+st.markdown("### 📊 Network Health")
+st.markdown("🧠 **Anomaly Detection:** Powered by Custom Random Forest ML Model")
+
 full_data = fetch_api("/telemetry?limit=100")
 
 if full_data and "data" in full_data and full_data["data"]:
