@@ -86,21 +86,6 @@ def trace_class(line):
 with st.sidebar:
     st.markdown("## 🌐 Network Controllers")
 
-    # Anomaly Injection
-    st.markdown("### 🚨 Inject Anomaly")
-    demo_routers = ["Core-Router-Mumbai", "Edge-Router-Delhi", "Core-Router-Delhi"]
-    sel_router = st.selectbox("Target Router", demo_routers)
-    sel_type = st.selectbox("Anomaly Type", ["congestion", "bgp_down", "cpu_spike", "interface_flap"])
-
-    if st.button("⚡ Inject Anomaly", type="primary", use_container_width=True):
-        res = fetch_api("/api/simulate-anomaly", "POST", {"anomaly_type": sel_type, "router_name": sel_router})
-        if res and "error" not in res:
-            st.success(f"✅ {sel_type} → {sel_router}")
-        else:
-            st.error(f"Failed: {res.get('error', 'unknown')}")
-
-    st.markdown("---")
-
     # ─── LIVE ROUTER CONFIG (Digital Twin view) ───
     st.markdown("### 🗂️ Live Router Config")
     st.caption("network_config.json (refreshes with page)")

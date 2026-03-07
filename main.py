@@ -26,6 +26,7 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 # ─────────────────────────────────────────────
 # IST
@@ -102,6 +103,12 @@ class AnomalyRequest(BaseModel):
 
 class ApprovalAction(BaseModel):
     thread_id: str
+
+class BulkInjectRequest(BaseModel):
+    injections: list[dict]  # [{"anomaly_type": ..., "router_name": ...}, ...]
+
+class StressScenarioRequest(BaseModel):
+    scenario: str  # "cascade_failure", "random_chaos", "full_meltdown"
 
 # ─────────────────────────────────────────────
 # Telemetry from Digital Twin
@@ -324,6 +331,113 @@ def simulate_anomaly(req: AnomalyRequest):
         write_jsonl_log(p)
 
     return {"status": "success", "message": f"network_config.json updated: {req.anomaly_type}=true on {req.router_name}", "timestamp": now_ist()}
+
+# ─────────────────────────────────────────────
+# Stress Test Page & Advanced Endpoints
+# ─────────────────────────────────────────────
+STRESS_HTML = Path("static/stress_test.html")
+
+@app.get("/stress-test", response_class=HTMLResponse)
+def serve_stress_test():
+    """Serve the standalone stress test HTML page."""
+    try:
+        return HTMLResponse(content=STRESS_HTML.read_text(encoding="utf-8"), status_code=200)
+    except FileNotFoundError:
+        raise HTTPException(404, "stress_test.html not found")
+
+@app.post("/api/reset-all")
+def reset_all_routers():
+    """Reset every router to healthy defaults."""
+    write_config(DEFAULT_CONFIG.copy())
+    _last_agent_trigger.clear()
+    return {"status": "success", "message": "All routers reset to healthy defaults", "timestamp": now_ist()}
+
+@app.post("/api/bulk-inject")
+def bulk_inject(req: BulkInjectRequest):
+    """Inject multiple anomalies at once."""
+    config = read_config()
+    type_map = {"congestion": "is_congested", "bgp_down": "bgp_down", "cpu_spike": "cpu_spiking", "interface_flap": "interface_flapping"}
+    count = 0
+
+    for item in req.injections:
+        rname = item.get("router_name", "")
+        atype = item.get("anomaly_type", "")
+        flag = type_map.get(atype)
+        if not flag:
+            continue
+        if rname not in config:
+            config[rname] = {"status": "online", "current_route": "Primary-Link-A", "is_congested": False, "bgp_down": False, "cpu_spiking": False, "interface_flapping": False}
+        config[rname][flag] = True
+        config[rname]["current_route"] = "Primary-Link-A"
+        _last_agent_trigger.pop(rname, None)
+        count += 1
+
+    write_config(config)
+
+    # Generate a few telemetry points to surface the anomalies
+    affected = {item.get("router_name") for item in req.injections if item.get("router_name") in config}
+    for r in affected:
+        for _ in range(2):
+            p = generate_telemetry_point(force_router=r)
+            TELEMETRY_BUFFER.append(p)
+            LATENCY_HISTORY.append(p["latency_ms"])
+            write_jsonl_log(p)
+
+    return {"status": "success", "injected": count, "timestamp": now_ist()}
+
+@app.post("/api/stress-scenario")
+def stress_scenario(req: StressScenarioRequest):
+    """Run a pre-built stress scenario."""
+    config = read_config()
+    type_map = {"congestion": "is_congested", "bgp_down": "bgp_down", "cpu_spike": "cpu_spiking", "interface_flap": "interface_flapping"}
+    injections = []
+
+    if req.scenario == "cascade_failure":
+        # Sequential failures across core routers
+        targets = [("Core-Router-Mumbai", "congestion"), ("Core-Router-Delhi", "bgp_down"), ("Core-Router-Hyderabad", "cpu_spike")]
+        for rname, atype in targets:
+            injections.append({"router_name": rname, "anomaly_type": atype})
+
+    elif req.scenario == "random_chaos":
+        import random as _rnd
+        all_routers = list(config.keys())
+        all_types = list(type_map.keys())
+        n = _rnd.randint(3, 5)
+        for _ in range(n):
+            injections.append({"router_name": _rnd.choice(all_routers), "anomaly_type": _rnd.choice(all_types)})
+
+    elif req.scenario == "full_meltdown":
+        for rname in config:
+            for atype in type_map:
+                injections.append({"router_name": rname, "anomaly_type": atype})
+
+    else:
+        raise HTTPException(400, f"Unknown scenario: {req.scenario}")
+
+    # Apply all injections
+    for item in injections:
+        rname = item["router_name"]
+        flag = type_map.get(item["anomaly_type"])
+        if not flag:
+            continue
+        if rname not in config:
+            config[rname] = {"status": "online", "current_route": "Primary-Link-A", "is_congested": False, "bgp_down": False, "cpu_spiking": False, "interface_flapping": False}
+        config[rname][flag] = True
+        config[rname]["current_route"] = "Primary-Link-A"
+        _last_agent_trigger.pop(rname, None)
+
+    write_config(config)
+
+    # Generate telemetry points
+    affected = {item["router_name"] for item in injections if item["router_name"] in config}
+    for r in affected:
+        for _ in range(2):
+            p = generate_telemetry_point(force_router=r)
+            TELEMETRY_BUFFER.append(p)
+            LATENCY_HISTORY.append(p["latency_ms"])
+            write_jsonl_log(p)
+
+    return {"status": "success", "scenario": req.scenario, "injections_count": len(injections), "timestamp": now_ist()}
 
 # ─────────────────────────────────────────────
 # Human-in-the-Loop
