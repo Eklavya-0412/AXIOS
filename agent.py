@@ -1,17 +1,14 @@
 """
 agent.py — LangGraph Network Operations Agent with ChromaDB RAG.
 
-Follows the StateGraph pattern from aspen-main reference:
-- TypedDict state with Annotated lists
-- MemorySaver checkpointer  
-- @tool decorators with .invoke()
-- Conditional edges with interrupt_before for human approval
-- llm.bind_tools() for structured tool calling
+Now fully integrates with the backend Control Plane endpoints via the python `requests` library.
+This establishes a Complete Closed-Loop Resolution System.
 """
 
 import os
 import json
 import operator
+import requests
 from typing import Annotated, List, Optional, TypedDict
 from datetime import datetime
 
@@ -45,9 +42,7 @@ COLLECTION_NAME = "network_sops"
 
 _retriever = None
 
-
 def get_retriever():
-    """Lazy-load the ChromaDB retriever."""
     global _retriever
     if _retriever is None:
         embeddings = GoogleGenerativeAIEmbeddings(
@@ -62,152 +57,154 @@ def get_retriever():
         _retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
     return _retriever
 
+# ─────────────────────────────────────────────
+# 3. Tool Definitions (Making Actual HTTP Requests)
+# ─────────────────────────────────────────────
+API_BASE = "http://127.0.0.1:8000/api/resolve"
 
-# ─────────────────────────────────────────────
-# 3. Tool Definitions (following @tool pattern from aspen-main)
-# ─────────────────────────────────────────────
 @tool
 def reroute_traffic(source_router: str, target_router: str):
     """
-    Reroutes network traffic from a failing source router to a healthy target router.
-    Use this for latency spikes or link failures where an alternate path exists.
+    Reroutes network traffic from a congested/failing source router to a healthy target router.
     Args:
         source_router: The router currently experiencing issues (e.g., 'Core-Router-Mumbai').
         target_router: The healthy router to reroute traffic to (e.g., 'Core-Router-Hyderabad').
     """
-    timestamp = datetime.now().isoformat()
-    return (
-        f"ACTION SUCCESS [{timestamp}]: Traffic rerouted from {source_router} "
-        f"to {target_router}. Alternate path is now active."
-    )
-
+    try:
+        response = requests.post(f"{API_BASE}/reroute", json={"router": source_router, "target_router": target_router})
+        response.raise_for_status()
+        data = response.json()
+        timestamp = datetime.now().isoformat()
+        return f"ACTION SUCCESS [{timestamp}]: {data.get('message', 'Rerouted.')}"
+    except Exception as e:
+        return f"ACTION FAILED: Request to control plane failed. {str(e)}"
 
 @tool
 def restart_interface(router: str, interface: str):
     """
-    Restarts a specific network interface on a router to resolve link flapping or errors.
+    Restarts a specific network interface to resolve hardware degradation or interface flapping.
     Args:
         router: The router name (e.g., 'Core-Router-Mumbai').
         interface: The interface identifier (e.g., 'Gi0/1').
     """
-    timestamp = datetime.now().isoformat()
-    return (
-        f"ACTION SUCCESS [{timestamp}]: Interface {interface} on {router} "
-        f"restarted. Link status: UP."
-    )
-
+    try:
+        response = requests.post(f"{API_BASE}/restart_interface", json={"router": router, "interface": interface})
+        response.raise_for_status()
+        data = response.json()
+        timestamp = datetime.now().isoformat()
+        return f"ACTION SUCCESS [{timestamp}]: {data.get('message', 'Interface restarted.')}"
+    except Exception as e:
+        return f"ACTION FAILED: Request to control plane failed. {str(e)}"
 
 @tool
 def adjust_qos(router: str, policy: str):
     """
-    Applies or adjusts a QoS policy on a router to manage congestion or prioritize traffic.
+    Applies a QoS policy to manage congestion.
     Args:
         router: The router name (e.g., 'Edge-Router-Delhi').
-        policy: The QoS policy name (e.g., 'EDGE_PROTECT', 'VOIP_PRIORITY', 'HIGH_PRIORITY_REROUTE').
+        policy: The QoS policy name (e.g., 'EDGE_PROTECT', 'VOIP_PRIORITY').
     """
-    timestamp = datetime.now().isoformat()
-    return (
-        f"ACTION SUCCESS [{timestamp}]: QoS policy '{policy}' applied to {router}. "
-        f"Traffic shaping active."
-    )
-
+    try:
+        response = requests.post(f"{API_BASE}/adjust_qos", json={"router": router, "policy": policy})
+        response.raise_for_status()
+        data = response.json()
+        timestamp = datetime.now().isoformat()
+        return f"ACTION SUCCESS [{timestamp}]: {data.get('message', 'QoS Adjusted.')}"
+    except Exception as e:
+        return f"ACTION FAILED: Request to control plane failed. {str(e)}"
 
 @tool
-def escalate_to_noc(issue_summary: str):
+def reset_bgp_session(router: str, peer: str = "upstream"):
     """
-    Escalates an issue to the Network Operations Center (NOC) for human intervention.
-    Use this when the issue is too complex or risky for automated resolution.
+    Resets a BGP peering session to resolve routing flaps or BGP down anomalies.
     Args:
-        issue_summary: A brief description of the issue and what has been tried.
+        router: The router name (e.g., 'Core-Router-Mumbai').
+        peer: The BGP peer to reset.
     """
-    timestamp = datetime.now().isoformat()
-    return (
-        f"ESCALATION [{timestamp}]: Issue escalated to NOC Tier 2. "
-        f"Summary: {issue_summary}. Ticket ID: NOC-{hash(issue_summary) % 10000:04d}"
-    )
+    try:
+        response = requests.post(f"{API_BASE}/reset_bgp", json={"router": router})
+        response.raise_for_status()
+        data = response.json()
+        timestamp = datetime.now().isoformat()
+        return f"ACTION SUCCESS [{timestamp}]: {data.get('message', 'BGP Reset.')}"
+    except Exception as e:
+        return f"ACTION FAILED: Request to control plane failed. {str(e)}"
+
+@tool
+def escalate_to_noc(issue_summary: str, router: str = "Unknown"):
+    """
+    Escalates to the human NOC team for complex scenarios where auto-resolution is risky.
+    Args:
+        issue_summary: Description of the issue.
+        router: The impacted router.
+    """
+    try:
+        response = requests.post(f"{API_BASE}/escalate", json={"router": router})
+        response.raise_for_status()
+        data = response.json()
+        timestamp = datetime.now().isoformat()
+        return f"ESCALATION [{timestamp}]: {data.get('message', 'Escalated.')}"
+    except Exception as e:
+        return f"ACTION FAILED: Request to control plane failed. {str(e)}"
 
 
 TOOL_MAP = {
     "reroute_traffic": reroute_traffic,
     "restart_interface": restart_interface,
     "adjust_qos": adjust_qos,
+    "reset_bgp_session": reset_bgp_session,
     "escalate_to_noc": escalate_to_noc,
 }
 
-ALL_TOOLS = [reroute_traffic, restart_interface, adjust_qos, escalate_to_noc]
-
+ALL_TOOLS = [reroute_traffic, restart_interface, adjust_qos, reset_bgp_session, escalate_to_noc]
 
 # ─────────────────────────────────────────────
-# 4. Agent State (TypedDict, following aspen-main pattern)
+# 4. Agent State (TypedDict)
 # ─────────────────────────────────────────────
 class NetworkAgentState(TypedDict):
-    anomaly_payload: dict  # Incoming anomaly from FastAPI
-    retrieved_context: str  # RAG results from ChromaDB
-    llm_reasoning: str  # LLM analysis output
-    recommended_action: str  # Tool name chosen
-    action_args: Optional[str]  # JSON string of tool args
-    action_result: str  # Execution result
-    risk_level: str  # "low" or "high"
-    human_approved: bool  # Gate for high-risk actions
+    anomaly_payload: dict
+    retrieved_context: str
+    llm_reasoning: str
+    recommended_action: str
+    action_args: Optional[str]
+    action_result: str
+    risk_level: str
+    human_approved: bool
 
-    # Append-only logs (using operator.add like aspen-main)
     reasoning_log: Annotated[List[str], operator.add]
     action_history: Annotated[List[str], operator.add]
-
 
 # ─────────────────────────────────────────────
 # 5. Graph Nodes
 # ─────────────────────────────────────────────
 def observe_node(state: NetworkAgentState):
-    """Node 1: Receives and logs the anomaly payload."""
     payload = state.get("anomaly_payload", {})
-    router = payload.get("router", "Unknown")
-    metric = payload.get("metric", "Unknown")
-    value = payload.get("value", "N/A")
-    threshold = payload.get("threshold", "N/A")
-
-    log_msg = (
-        f"Observer: Anomaly detected on {router}. "
-        f"{metric}={value} (threshold: {threshold})"
-    )
-
     return {
-        "reasoning_log": [log_msg],
+        "reasoning_log": [(
+            f"Observer: Anomaly detected on {payload.get('router')}. "
+            f"{payload.get('metric')}={payload.get('value')} (threshold: {payload.get('threshold')})"
+        )]
     }
 
-
 def retrieve_node(state: NetworkAgentState):
-    """Node 2: Queries ChromaDB for relevant SOPs and past incidents."""
     payload = state.get("anomaly_payload", {})
-    router = payload.get("router", "")
-    metric = payload.get("metric", "latency")
-
-    query = f"{metric} issue on {router}"
-
+    query = f"{payload.get('metric')} issue on {payload.get('router')}"
+    
     try:
         retriever = get_retriever()
         docs = retriever.invoke(query)
         context = "\n\n---\n\n".join([doc.page_content for doc in docs])
+        log_msg = f"Retriever: Found {len(docs)} relevant SOPs for '{query}'"
     except Exception as e:
         context = f"RAG retrieval failed: {str(e)}"
+        log_msg = "Retriever: RAG failed."
 
-    log_msg = f"Retriever: Found {len(docs) if 'docs' in dir() else 0} relevant SOPs for '{query}'"
-
-    return {
-        "retrieved_context": context,
-        "reasoning_log": [log_msg],
-    }
-
+    return {"retrieved_context": context, "reasoning_log": [log_msg]}
 
 def reason_and_decide_node(state: NetworkAgentState):
-    """
-    Node 3: LLM analyzes telemetry + RAG context and decides which tool to use.
-    Uses llm.bind_tools() pattern from aspen-main's decider_node.
-    """
     payload = state.get("anomaly_payload", {})
     context = state.get("retrieved_context", "No context available.")
-    history = state.get("action_history", [])
-
+    
     prompt = f"""
     SYSTEM: You are an Autonomous Network Operations AI for an ISP called IndiaNet.
     
@@ -215,45 +212,31 @@ def reason_and_decide_node(state: NetworkAgentState):
     - Router: {payload.get('router', 'Unknown')}
     - Metric: {payload.get('metric', 'Unknown')}
     - Current Value: {payload.get('value', 'N/A')}
-    - Threshold: {payload.get('threshold', 'N/A')}
-    - Recent Telemetry: {json.dumps(payload.get('recent_data', [])[-5:], indent=2)}
+    - Latest Telemetry: {json.dumps(payload.get('recent_data', [])[-2:], indent=2)}
     
     RELEVANT SOPs & PAST INCIDENTS (from knowledge base):
     {context[:3000]}
     
-    PAST ACTIONS TAKEN: {json.dumps(history[-5:])}
-    
     AVAILABLE TOOLS:
-    1. 'reroute_traffic': Reroute traffic from failing router to healthy one. LOW RISK for single-link issues.
-    2. 'restart_interface': Restart a network interface. LOW RISK.
-    3. 'adjust_qos': Apply QoS policy for congestion/DDoS. LOW RISK.
-    4. 'escalate_to_noc': Escalate to human NOC team. Use for complex/multi-failure scenarios. LOW RISK.
+    1. 'reroute_traffic': Resolve 'congestion' by routing to a backup. LOW RISK.
+    2. 'restart_interface': Resolve 'hardware degradation' or 'CPU spike' or 'interface flap'. LOW RISK.
+    3. 'adjust_qos': Apply QoS policy for DDoS/congestion. LOW RISK.
+    4. 'reset_bgp_session': Resolve 'BGP down' or route flaps. LOW RISK.
+    5. 'escalate_to_noc': Escalate to human NOC team.
     
-    RISK GUIDELINES:
-    - Actions affecting a single interface or applying rate-limiting = LOW risk
-    - Rerouting traffic for a single router with known backup = LOW risk
-    - Actions affecting core infrastructure or multiple routers = HIGH risk
-    - Actions when root cause is unclear = HIGH risk
-    
-    MISSION:
-    1. Diagnose the root cause based on the anomaly data and SOPs.
-    2. Choose the most appropriate tool.
-    3. Determine if this is LOW or HIGH risk.
-    
-    Call the appropriate tool now.
+    MISSION: Determine root cause based on data and SOP, then call ONE appropriate tool.
+    Set risk_level to 'high' if uncertain or if it affects multiple routers. Otherwise 'low'.
     """
 
-    # Use bind_tools pattern from aspen-main
     llm_with_tools = llm.bind_tools(ALL_TOOLS)
     response = llm_with_tools.invoke([
-        SystemMessage(content="You are an expert network operations AI. Analyze the anomaly and call the most appropriate tool."),
+        SystemMessage(content="You are an expert network operations AI. Analyze and call the tool."),
         HumanMessage(content=prompt),
     ])
 
-    # Parse tool calls (same pattern as aspen-main's decider_node)
     risk_level = "low"
     recommended_action = "escalate_to_noc"
-    action_args = json.dumps({"issue_summary": "Anomaly detected, manual review needed"})
+    action_args = json.dumps({"issue_summary": "Fallback escalation.", "router": payload.get('router', 'Unknown')})
     reasoning = response.content or ""
 
     if response.tool_calls:
@@ -261,22 +244,10 @@ def reason_and_decide_node(state: NetworkAgentState):
         recommended_action = tool_call["name"]
         action_args = json.dumps(tool_call["args"])
 
-        # Determine risk level based on action + context
-        if recommended_action == "reroute_traffic":
-            # High risk if multiple failures mentioned or router is completely down
-            if "unreachable" in context.lower() or "power" in context.lower():
-                risk_level = "high"
-            else:
-                risk_level = "low"
-        elif recommended_action in ("restart_interface", "adjust_qos", "escalate_to_noc"):
-            risk_level = "low"
-        else:
+        if "multiple" in str(tool_call["args"]) or "escalate" in recommended_action:
             risk_level = "high"
 
-    log_msg = (
-        f"Reasoner: Decided '{recommended_action}' with args {action_args}. "
-        f"Risk: {risk_level.upper()}. Reasoning: {reasoning[:200]}"
-    )
+    log_msg = f"Reasoner: Decided '{recommended_action}' with args {action_args}. Risk: {risk_level.upper()}."
 
     return {
         "llm_reasoning": reasoning,
@@ -286,153 +257,102 @@ def reason_and_decide_node(state: NetworkAgentState):
         "reasoning_log": [log_msg],
     }
 
-
 def human_approval_node(state: NetworkAgentState):
-    """
-    Node 4 (conditional): Pass-through for high-risk actions.
-    Uses interrupt_before pattern from aspen-main's sentry_node.
-    In demo mode, auto-approves.
-    """
+    # Only hit if risk_level == "high"
     action = state.get("recommended_action", "unknown")
-    args = state.get("action_args", "{}")
-    log_msg = (
-        f"Human Approval: HIGH-RISK action '{action}' requires approval. "
-        f"Args: {args}. Auto-approved for demo."
-    )
+    try:
+        args = json.loads(state.get("action_args", "{}"))
+        router_arg = args.get('router') or args.get('source_router') or "Unknown"
+    except json.JSONDecodeError:
+        router_arg = "Unknown"
+        
     return {
-        "human_approved": True,
-        "reasoning_log": [log_msg],
+        "human_approved": True, 
+        "reasoning_log": [f"Human Approval: Action '{action}' auto-approved for demo."]
     }
 
-
 def act_node(state: NetworkAgentState):
-    """
-    Node 5: Executes the chosen tool.
-    Uses the tool_map + .invoke() pattern from aspen-main's executor_node.
-    """
-    tool_name = state.get("recommended_action", "")
+    tool_name = state.get("recommended_action")
     args_str = state.get("action_args", "{}")
 
     try:
         args = json.loads(args_str)
-    except json.JSONDecodeError:
+    except:
         args = {}
 
     if tool_name in TOOL_MAP:
         result = TOOL_MAP[tool_name].invoke(args)
     else:
-        result = f"Error: Tool '{tool_name}' not found in tool map."
+        result = "Error: Tool not found."
 
-    action_record = f"ACTION: {tool_name} | ARGS: {args} | RESULT: {result}"
     log_msg = f"Executor: {result}"
-
     return {
         "action_result": str(result),
         "reasoning_log": [log_msg],
-        "action_history": [action_record],
+        "action_history": [f"ACTION: {tool_name} | ARGS: {args} | RESULT: {result}"],
     }
 
-
 # ─────────────────────────────────────────────
-# 6. Build the Graph (following aspen-main pattern)
+# 6. Build Graph
 # ─────────────────────────────────────────────
-def route_decision(state: NetworkAgentState):
-    """Conditional edge: route to human_approval for high-risk, act for low-risk."""
-    risk = state.get("risk_level", "high")
-    if risk == "high":
-        return "human_approval"
-    return "act"
-
-
-# Build the workflow
 workflow = StateGraph(NetworkAgentState)
 
-# Add nodes
 workflow.add_node("observe", observe_node)
 workflow.add_node("retrieve", retrieve_node)
 workflow.add_node("reason_and_decide", reason_and_decide_node)
 workflow.add_node("human_approval", human_approval_node)
 workflow.add_node("act", act_node)
 
-# Set entry point
 workflow.set_entry_point("observe")
-
-# Add edges
 workflow.add_edge("observe", "retrieve")
 workflow.add_edge("retrieve", "reason_and_decide")
 
-# Conditional edge from reason_and_decide
-workflow.add_conditional_edges(
-    "reason_and_decide",
-    route_decision,
-    {
-        "human_approval": "human_approval",
-        "act": "act",
-    },
-)
+def route_decision(state: NetworkAgentState):
+    if state.get("risk_level", "high") == "high":
+        return "human_approval"
+    return "act"
+
+workflow.add_conditional_edges("reason_and_decide", route_decision)
 workflow.add_edge("human_approval", "act")
 workflow.add_edge("act", END)
 
-# Compile with checkpointer and human-in-the-loop interrupt
 checkpointer = MemorySaver()
 agent_app = workflow.compile(
     checkpointer=checkpointer,
     interrupt_before=["human_approval"],
 )
 
-
-# ─────────────────────────────────────────────
-# 7. Public API (called from main.py)
-# ─────────────────────────────────────────────
-def get_graph_diagram():
-    """Returns a Mermaid-compatible string to render the agent graph."""
-    return agent_app.get_graph().draw_mermaid()
-
-
 def run_agent(anomaly_payload: dict, thread_id: str = "auto") -> dict:
-    """
-    Run the full agent pipeline for an anomaly.
-    Returns the final state with the complete trace.
-    """
     import uuid
-
     if thread_id == "auto":
         thread_id = f"anomaly_{uuid.uuid4().hex[:8]}"
 
     config = {"configurable": {"thread_id": thread_id}}
-    initial_state = {
-        "anomaly_payload": anomaly_payload,
-        "reasoning_log": [],
-        "action_history": [],
-    }
+    initial_state = {"anomaly_payload": anomaly_payload, "reasoning_log": [], "action_history": []}
 
-    # Stream through the graph (same pattern as aspen-main's server.py)
     logs = []
+    
+    # 1. Stream up to the interruption
     for event in agent_app.stream(initial_state, config=config):
         for node, update in event.items():
             if "reasoning_log" in update:
-                entry = f"[{node.upper()}] {update['reasoning_log'][-1]}"
-                logs.append(entry)
+                logs.append(f"[{node.upper()}] {update['reasoning_log'][-1]}")
 
-    # Check if interrupted at human_approval
+    # 2. Check for human permission
     snapshot = agent_app.get_state(config)
     if snapshot.next and "human_approval" in snapshot.next:
-        # Auto-resume for demo (like aspen-main's approve_action)
+        # Auto resume for closed loop demo
         for event in agent_app.stream(None, config=config):
             for node, update in event.items():
                 if "reasoning_log" in update:
-                    entry = f"[{node.upper()}] {update['reasoning_log'][-1]}"
-                    logs.append(entry)
+                    logs.append(f"[{node.upper()}] {update['reasoning_log'][-1]}")
 
-    # Get final state
     final_state = agent_app.get_state(config).values
-
+    
     return {
         "thread_id": thread_id,
         "logs": logs,
         "action_result": final_state.get("action_result", "No action taken"),
         "risk_level": final_state.get("risk_level", "unknown"),
         "recommended_action": final_state.get("recommended_action", "none"),
-        "llm_reasoning": final_state.get("llm_reasoning", ""),
-        "retrieved_context": final_state.get("retrieved_context", "")[:500],
     }
