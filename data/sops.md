@@ -1,124 +1,138 @@
 # Network SOPs & Past Incidents — IndiaNet ISP
+# Source of Truth: network_config.json
+# All tools modify network_config.json directly.
 
-## SOP-001: High Latency on Core-Router-Mumbai
+## SOP-001: High Latency / Congestion on Any Router
 
-**Severity:** P1 — Critical  
-**Affected Components:** Core-Router-Mumbai, Mumbai-Delhi-Link-1  
-**Symptoms:** Latency exceeding 200ms on Core-Router-Mumbai, packet loss > 2%  
-**Root Cause Pattern:** Interface congestion or upstream provider degradation  
-
-### Resolution Steps
-1. Check interface utilization on Core-Router-Mumbai GigabitEthernet0/1.
-2. If utilization > 85%, apply QoS policy `HIGH_PRIORITY_REROUTE`.
-3. Reroute traffic from Mumbai-Delhi-Link-1 to Mumbai-Delhi-Link-2 (backup path via Core-Router-Hyderabad).
-4. Monitor for 10 minutes. If latency normalizes, mark resolved.
-5. If latency persists, escalate to NOC Tier 2.
-
----
-
-## SOP-002: Link Flapping on Mumbai-Delhi-Link-1
-
-**Severity:** P2 — High  
-**Affected Components:** Mumbai-Delhi-Link-1, Core-Router-Mumbai, Core-Router-Delhi  
-**Symptoms:** Link status oscillating between UP and DOWN every 30-60 seconds  
-**Root Cause Pattern:** Faulty SFP module or fiber degradation  
+**Severity:** P1 — Critical
+**Symptoms:** Latency exceeding 200ms, is_congested=true in network_config.json
+**Root Cause Pattern:** Interface congestion, upstream provider degradation, traffic surge
 
 ### Resolution Steps
-1. Restart interface on both ends: Core-Router-Mumbai Gi0/1 and Core-Router-Delhi Gi0/2.
-2. If flapping continues after restart, reroute all traffic to Mumbai-Delhi-Link-2.
-3. Create a maintenance ticket for physical layer inspection.
-4. Escalate to NOC with fiber team dispatch request.
+1. The FIRST action for congestion is ALWAYS: call `reroute_traffic(source_router="<affected_router>", target_router="Core-Router-Hyderabad")`.
+   This changes `current_route` from "Primary-Link-A" to "Backup-Link-B" in network_config.json.
+2. Once rerouted, the telemetry generator reads the new route and immediately produces healthy data.
+3. If latency persists after rerouting, call `adjust_qos(router="<affected_router>", policy="HIGH_PRIORITY_REROUTE")`.
+4. If still unresolved, call `escalate_to_noc()`.
+
+**Tool Mapping:** congestion anomaly → reroute_traffic (LOW RISK)
 
 ---
 
-## SOP-003: Packet Loss on Edge-Router-Delhi
+## SOP-002: Interface Flapping / Link Instability
 
-**Severity:** P2 — High  
-**Affected Components:** Edge-Router-Delhi, Delhi-Kolkata-Link-1  
-**Symptoms:** Packet loss > 5% on Edge-Router-Delhi, user complaints from Delhi metro  
-**Root Cause Pattern:** Buffer overflow due to DDoS or misconfigured ACL  
+**Severity:** P2 — High
+**Symptoms:** interface_flapping=true in network_config.json, packet loss 20-50%
+**Root Cause Pattern:** Faulty SFP module, fiber degradation, hardware issue
 
 ### Resolution Steps
-1. Check CPU and memory utilization on Edge-Router-Delhi.
-2. Apply rate-limiting QoS policy `EDGE_PROTECT` to throttle excessive traffic.
-3. If DDoS suspected, enable blackhole routing for offending source IPs.
-4. If packet loss drops below 1%, mark as mitigated.
-5. Escalate to security team if attack pattern persists.
+1. Call `restart_interface(router="<affected_router>", interface="Gi0/1")`.
+   This sets `status="rebooting"` in network_config.json, waits 5s, then sets `status="online"` and clears all flags.
+2. If flapping continues, call `reroute_traffic()` to move traffic off the bad link.
+3. If physical issue suspected, call `escalate_to_noc()`.
+
+**Tool Mapping:** interface_flapping anomaly → restart_interface (LOW RISK)
 
 ---
 
-## SOP-004: Core-Router-Hyderabad Unreachable
+## SOP-003: CPU Spike / High CPU Utilization
 
-**Severity:** P1 — Critical  
-**Affected Components:** Core-Router-Hyderabad, Mumbai-Hyderabad-Link-1, Hyderabad-Chennai-Link-1  
-**Symptoms:** Complete loss of connectivity to Core-Router-Hyderabad, SNMP timeouts  
-**Root Cause Pattern:** Power failure or OS crash on router  
+**Severity:** P2 — High
+**Symptoms:** cpu_spiking=true in network_config.json, CPU > 90%
+**Root Cause Pattern:** DDoS attack, routing table explosion, firmware bug
 
 ### Resolution Steps
-1. Attempt remote power cycle via IPMI/iLO console.
-2. Immediately reroute all south-bound traffic via Core-Router-Chennai (backup path).
-3. Dispatch on-site engineer to Hyderabad data center.
-4. Escalate to NOC Tier 3 — this is a critical infrastructure failure.
+1. Call `restart_interface(router="<affected_router>", interface="Gi0/1")` to clear the CPU spike.
+   The restart clears cpu_spiking flag in network_config.json.
+2. If caused by DDoS, also call `adjust_qos(router="<affected_router>", policy="EDGE_PROTECT")`.
+3. If CPU remains high after restart, call `escalate_to_noc()`.
+
+**Tool Mapping:** cpu_spike anomaly → restart_interface (LOW RISK)
 
 ---
 
-## SOP-005: QoS Policy Degradation — VoIP Traffic
+## SOP-004: BGP Session Down
 
-**Severity:** P2 — High  
-**Affected Components:** All core routers, specifically Core-Router-Mumbai, Core-Router-Delhi  
-**Symptoms:** VoIP call quality degradation, jitter > 30ms  
-**Root Cause Pattern:** QoS policy misconfiguration after maintenance window  
+**Severity:** P1 — Critical
+**Symptoms:** bgp_down=true in network_config.json, packet_loss=100%, BGP flaps > 0
+**Root Cause Pattern:** Upstream provider maintenance, route policy change, BGP misconfiguration
 
 ### Resolution Steps
-1. Verify current QoS policies on Core-Router-Mumbai and Core-Router-Delhi.
-2. Apply `VOIP_PRIORITY` policy to prioritize RTP traffic.
-3. Adjust DSCP markings to ensure EF (Expedited Forwarding) for VoIP.
-4. Monitor jitter and MOS scores for 15 minutes.
+1. Call `reset_bgp_session(router="<affected_router>", peer="upstream")`.
+   This clears bgp_down flag in network_config.json.
+2. If BGP does not re-establish, switch to backup upstream via rerouting.
+3. Always notify upstream provider NOC.
+
+**Tool Mapping:** bgp_down anomaly → reset_bgp_session (HIGH RISK — requires human approval)
+**CRITICAL:** This is a HIGH RISK action. The agent MUST request human approval before executing.
 
 ---
 
-## SOP-006: BGP Session Down with Upstream Provider
+## SOP-005: Packet Loss on Edge Routers (DDoS/ACL)
 
-**Severity:** P1 — Critical  
-**Affected Components:** Core-Router-Mumbai, Upstream-ISP-Tata  
-**Symptoms:** BGP session flap, loss of default route, internet unreachable for Mumbai region  
-**Root Cause Pattern:** Upstream provider maintenance or route policy change  
+**Severity:** P2 — High
+**Symptoms:** High packet_loss on edge routers (5-15%), no BGP flaps
+**Root Cause Pattern:** DDoS attack, buffer overflow, ACL misconfiguration
 
 ### Resolution Steps
-1. Check BGP neighbor status on Core-Router-Mumbai.
-2. If session is down, attempt `clear ip bgp * soft` to re-establish.
-3. If BGP does not re-establish within 5 minutes, switch to backup upstream via Core-Router-Delhi.
-4. Notify upstream provider NOC and log incident.
+1. Call `adjust_qos(router="<affected_router>", policy="EDGE_PROTECT")` to throttle traffic.
+2. If DDoS suspected, consider escalation.
+3. If packet loss drops below 1%, mark resolved.
+
+**Tool Mapping:** packet_loss on edge routers (without BGP down) → adjust_qos (LOW RISK)
 
 ---
 
-## Past Incident: INC-2024-0147 — Mumbai Latency Spike (2024-11-15)
+## Router Routing Information
 
-**Duration:** 45 minutes  
-**Affected:** Core-Router-Mumbai, 12,000 subscribers  
-**Root Cause:** Memory leak in router firmware causing gradual latency increase.  
-**Detection:** Z-score anomaly detection flagged latency at 340ms (normal baseline: 18ms).  
-**Resolution:** Traffic rerouted to Core-Router-Hyderabad via `reroute_traffic("Core-Router-Mumbai", "Core-Router-Hyderabad")`. Firmware patched in next maintenance window.  
-**Lesson Learned:** Proactive firmware monitoring SOP added. Auto-reroute is safe for latency-only anomalies with no packet loss.
+| Router | Primary Route | Backup Route | Type |
+|--------|--------------|--------------|------|
+| Core-Router-Mumbai | Primary-Link-A (Mumbai→Delhi) | Backup-Link-B (via Hyderabad) | Core |
+| Core-Router-Delhi | Primary-Link-A (Delhi→Mumbai) | Backup-Link-B (via Kolkata) | Core |
+| Core-Router-Hyderabad | Primary-Link-A (Hyderabad→Mumbai) | Backup-Link-B (via Chennai) | Core |
+| Core-Router-Chennai | Primary-Link-A (Chennai→Hyderabad) | Backup-Link-B (via Hyderabad) | Core |
+| Edge-Router-Delhi | Primary-Link-A (Edge→Core-Delhi) | Backup-Link-B (via Core-Mumbai) | Edge |
+| Edge-Router-Kolkata | Primary-Link-A (Kolkata→Core-Delhi) | Backup-Link-B (via Core-Mumbai) | Edge |
 
----
-
-## Past Incident: INC-2024-0203 — Delhi DDoS Attack (2024-12-02)
-
-**Duration:** 2 hours  
-**Affected:** Edge-Router-Delhi, 8,500 subscribers  
-**Root Cause:** Volumetric DDoS attack targeting DNS infrastructure.  
-**Detection:** Packet loss spiked to 15% on Edge-Router-Delhi.  
-**Resolution:** Rate-limiting applied via `adjust_qos("Edge-Router-Delhi", "EDGE_PROTECT")`. Attack traffic blackholed. ISP upstream notified for scrubbing.  
-**Lesson Learned:** QoS adjustment is a LOW-RISK first response for packet loss anomalies. Escalation required if attack sustains > 30 minutes.
+**Core routers** handle backbone traffic between cities. **Edge routers** connect end users.
+When rerouting from a core router, always target a different core router (e.g., Core-Router-Hyderabad).
+When rerouting from an edge router, target a core router (e.g., Core-Router-Mumbai).
 
 ---
 
-## Past Incident: INC-2025-0019 — Hyderabad Power Outage (2025-01-10)
+## ANOMALY → TOOL QUICK REFERENCE
 
-**Duration:** 3 hours  
-**Affected:** Core-Router-Hyderabad, all south-bound traffic  
-**Root Cause:** Data center UPS failure during grid power cut.  
-**Detection:** SNMP timeout and complete packet loss to Core-Router-Hyderabad.  
-**Resolution:** Traffic rerouted to Core-Router-Chennai. On-site team restored power from backup generator.  
-**Lesson Learned:** Complete router unreachability should trigger HIGH-RISK alert requiring human approval before major rerouting. Auto-reroute approved only for single-link failures, not full router outages.
+| Anomaly Type | Flag in Config | Recommended Tool | Risk Level |
+|-------------|---------------|-----------------|------------|
+| Congestion (high latency) | is_congested | reroute_traffic | LOW |
+| Interface Flapping | interface_flapping | restart_interface | LOW |
+| CPU Spike | cpu_spiking | restart_interface | LOW |
+| BGP Down | bgp_down | reset_bgp_session | HIGH |
+| DDoS / Packet Loss (no BGP) | is_congested | adjust_qos | LOW |
+
+---
+
+## Past Incident: INC-2024-0147 — Mumbai Latency Spike
+
+**Duration:** 45 minutes
+**Root Cause:** Memory leak causing gradual latency increase.
+**Resolution:** `reroute_traffic("Core-Router-Mumbai", "Core-Router-Hyderabad")` — network_config.json updated: current_route → Backup-Link-B.
+**Lesson:** Auto-reroute is safe for latency anomalies. The moment current_route changes, telemetry normalizes.
+
+---
+
+## Past Incident: INC-2024-0203 — Delhi DDoS
+
+**Duration:** 2 hours
+**Root Cause:** Volumetric DDoS on Edge-Router-Delhi.
+**Resolution:** `adjust_qos("Edge-Router-Delhi", "EDGE_PROTECT")` — is_congested cleared in network_config.json.
+**Lesson:** QoS is a LOW-RISK first response for packet loss anomalies on edge routers.
+
+---
+
+## Past Incident: INC-2025-0019 — Hyderabad Power Outage
+
+**Duration:** 3 hours
+**Root Cause:** UPS failure.
+**Resolution:** Traffic rerouted to Core-Router-Chennai. On-site team restored power.
+**Lesson:** Full router outage = HIGH RISK, requires human approval.

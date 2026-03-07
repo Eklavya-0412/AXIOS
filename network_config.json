@@ -1,0 +1,50 @@
+{
+  "Core-Router-Mumbai": {
+    "status": "online",
+    "current_route": "Backup-via-Core-Router-Hyderabad",
+    "is_congested": false,
+    "bgp_down": false,
+    "cpu_spiking": false,
+    "interface_flapping": false
+  },
+  "Core-Router-Delhi": {
+    "status": "online",
+    "current_route": "Primary-Link-A",
+    "is_congested": false,
+    "bgp_down": false,
+    "cpu_spiking": false,
+    "interface_flapping": false
+  },
+  "Core-Router-Hyderabad": {
+    "status": "online",
+    "current_route": "Primary-Link-A",
+    "is_congested": false,
+    "bgp_down": false,
+    "cpu_spiking": false,
+    "interface_flapping": false
+  },
+  "Core-Router-Chennai": {
+    "status": "online",
+    "current_route": "Primary-Link-A",
+    "is_congested": false,
+    "bgp_down": false,
+    "cpu_spiking": false,
+    "interface_flapping": false
+  },
+  "Edge-Router-Delhi": {
+    "status": "online",
+    "current_route": "Primary-Link-A",
+    "is_congested": false,
+    "bgp_down": false,
+    "cpu_spiking": false,
+    "interface_flapping": false
+  },
+  "Edge-Router-Kolkata": {
+    "status": "online",
+    "current_route": "Primary-Link-A",
+    "is_congested": false,
+    "bgp_down": false,
+    "cpu_spiking": false,
+    "interface_flapping": false
+  }
+}
