@@ -64,14 +64,20 @@ llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key, t
 # ─────────────────────────────────────────────
 CHROMA_DIR = "./chroma_db"
 COLLECTION_NAME = "network_sops"
+_vectorstore = None
 _retriever = None
+
+def get_vectorstore():
+    global _vectorstore
+    if _vectorstore is None:
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key)
+        _vectorstore = Chroma(collection_name=COLLECTION_NAME, persist_directory=CHROMA_DIR, embedding_function=embeddings)
+    return _vectorstore
 
 def get_retriever():
     global _retriever
     if _retriever is None:
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=api_key)
-        vectorstore = Chroma(collection_name=COLLECTION_NAME, persist_directory=CHROMA_DIR, embedding_function=embeddings)
-        _retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        _retriever = get_vectorstore().as_retriever(search_kwargs={"k": 3})
     return _retriever
 
 # ─────────────────────────────────────────────
@@ -339,6 +345,34 @@ def act_node(state: NetworkAgentState):
         "action_history": [f"{tool_name} | {args} | {result}"],
     }
 
+def learn_node(state: NetworkAgentState):
+    p = state.get("anomaly_payload", {})
+    action = state.get("recommended_action", "Unknown")
+    result = state.get("action_result", "Unknown")
+    router = p.get("router", "Unknown")
+    metric = p.get("metric", "Unknown")
+    value = p.get("value", "Unknown")
+
+    post_mortem = f"Incident on {router}: {metric} spiked to {value}. Action taken: {action}. Result: {result}. Date: {now_ist()}"
+
+    history_file = os.path.join("data", "incident_history.md")
+    os.makedirs(os.path.dirname(history_file), exist_ok=True)
+    try:
+        with open(history_file, "a", encoding="utf-8") as f:
+            f.write(f"- {post_mortem}\n")
+    except Exception:
+        pass
+
+    try:
+        get_vectorstore().add_texts([post_mortem])
+        learn_log = f"Learner [{now_ist()}]: Post-mortem saved to incident_history.md and embedded into ChromaDB."
+    except Exception as e:
+        learn_log = f"Learner [{now_ist()}]: Failed to embed to ChromaDB: {e}"
+
+    return {
+        "reasoning_log": [learn_log]
+    }
+
 # ─────────────────────────────────────────────
 # 6. Graph
 # ─────────────────────────────────────────────
@@ -348,6 +382,7 @@ workflow.add_node("retrieve", retrieve_node)
 workflow.add_node("reason_and_decide", reason_and_decide_node)
 workflow.add_node("human_approval", human_approval_node)
 workflow.add_node("act", act_node)
+workflow.add_node("learn", learn_node)
 
 workflow.set_entry_point("observe")
 workflow.add_edge("observe", "retrieve")
@@ -358,7 +393,8 @@ def route_decision(state):
 
 workflow.add_conditional_edges("reason_and_decide", route_decision)
 workflow.add_edge("human_approval", "act")
-workflow.add_edge("act", END)
+workflow.add_edge("act", "learn")
+workflow.add_edge("learn", END)
 
 checkpointer = MemorySaver()
 agent_app = workflow.compile(checkpointer=checkpointer, interrupt_before=["human_approval"])

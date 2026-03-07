@@ -10,6 +10,7 @@ import requests
 import plotly.graph_objects as go
 import time
 import json
+from streamlit_agraph import agraph, Node, Edge, Config
 
 # ─────────────────────────────────────────────
 API_BASE = "http://127.0.0.1:8000"
@@ -142,6 +143,50 @@ st.markdown("""<div class="main-header">
     <h1>🤖 NetOps Autonomous Agent — Digital Twin</h1>
     <p>Observe → Reason → Decide → Act → Learn | Config-driven Closed-Loop Resolution</p>
 </div>""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+# Live Topology Map (Streamlit Agraph)
+# ─────────────────────────────────────────────
+st.markdown("### 🗺️ Live Network Topology")
+config_data = fetch_api("/network-config")
+
+if config_data and "error" not in config_data:
+    nodes = []
+    edges = []
+    
+    # Add Internet Node
+    nodes.append(Node(id="Internet", label="Internet / Core-Cloud", size=25, color="#00d2ff"))
+    
+    for router_name, r_state in config_data.items():
+        status = r_state.get("status", "online")
+        flags = [k for k, v in r_state.items() if isinstance(v, bool) and v]
+        
+        color = "#22c55e" # Green
+        if status == "rebooting":
+            color = "#6b7280" # Grey
+        elif flags:
+            color = "#ef4444" # Red
+            
+        nodes.append(Node(id=router_name, label=router_name, size=20, color=color))
+        
+        route = r_state.get("current_route", "Primary-Link-A")
+        
+        if route.startswith("Backup-via-"):
+            target = route.split("Backup-via-")[1]
+            edges.append(Edge(source=router_name, target=target, label="BACKUP", color="#f59e0b", width=3))
+        else:
+            edge_color = "#ef4444" if r_state.get("is_congested") else "#22c55e"
+            if "Edge" in router_name:
+                edges.append(Edge(source=router_name, target=router_name.replace("Edge-", "Core-"), label="PRIMARY", color=edge_color, width=2))
+            else:
+                edges.append(Edge(source=router_name, target="Internet", label="PRIMARY", color=edge_color, width=2))
+                
+    config = Config(height=400, directed=True, nodeHighlightBehavior=True, highlightColor="#F7A7A6", collapsible=False, physics=True)
+    
+    agraph(nodes=nodes, edges=edges, config=config)
+else:
+    st.warning("Cannot load topology configuration.")
 
 
 # ─────────────────────────────────────────────
