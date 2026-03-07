@@ -1,0 +1,17 @@
+# Virtual Environment
+.venv/
+
+# ChromaDB local storage
+chroma_db/
+
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
