@@ -1,0 +1,133 @@
+{
+  "version": "1.0.0",
+  "effective_date": "2026-03-08",
+  "policy_name": "NetOps Autonomous Agent Safety Policy",
+  "risk_levels": {
+    "low": {
+      "name": "Low-Risk (Auto-Execute)",
+      "description": "Actions automatically executed without human approval",
+      "approval_required": false,
+      "max_blast_radius_nodes": 10,
+      "auto_rollback_enabled": true,
+      "recovery_sla_minutes": 5,
+      "tools": [
+        "reroute_traffic",
+        "restart_interface",
+        "adjust_qos"
+      ]
+    },
+    "high": {
+      "name": "High-Risk (Human-in-the-Loop)",
+      "description": "Actions that halt pipeline and require NOC approval",
+      "approval_required": true,
+      "max_blast_radius_nodes": 20,
+      "auto_rollback_enabled": false,
+      "approval_timeout_seconds": 300,
+      "tools": [
+        "reset_bgp_session",
+        "escalate_to_noc"
+      ]
+    },
+    "forbidden": {
+      "name": "Forbidden (Never Execute)",
+      "description": "Actions the agent is not permitted to perform",
+      "approval_required": false,
+      "tools": [
+        "hard_reboot_router",
+        "delete_routes",
+        "modify_firewall_rules",
+        "change_bgp_asn",
+        "inject_traffic"
+      ]
+    }
+  },
+  "blast_radius_classification": {
+    "critical": {
+      "nodes_affected": "> 20",
+      "decision": "ESCALATE to NOC",
+      "auto_act_allowed": false
+    },
+    "high": {
+      "nodes_affected": "11-20",
+      "decision": "REQUIRE approval for high-risk tools; auto-execute low-risk only",
+      "auto_act_allowed": "low_risk_only"
+    },
+    "moderate": {
+      "nodes_affected": "6-10",
+      "decision": "AUTO-EXECUTE low-risk tools only",
+      "auto_act_allowed": "low_risk_only"
+    },
+    "low": {
+      "nodes_affected": "1-5",
+      "decision": "AUTO-EXECUTE any eligible action",
+      "auto_act_allowed": true
+    }
+  },
+  "observability_checks": {
+    "initial_payload_must_be_symptom_only": true,
+    "mandatory_investigation_steps": [
+      "run_device_diagnostics",
+      "calculate_blast_radius"
+    ],
+    "diagnosis_timeout_seconds": 10,
+    "investigation_before_reason_and_decide": true
+  },
+  "audit_trail": {
+    "enabled": true,
+    "log_location": "logs/audit_trail.jsonl",
+    "format": "jsonl",
+    "required_fields": [
+      "action_id",
+      "timestamp",
+      "anomaly_trigger",
+      "diagnostic_results",
+      "blast_radius",
+      "decision_rationale",
+      "action_executed",
+      "verification_result",
+      "outcome"
+    ],
+    "retention_days": 90,
+    "archive_after_years": 1
+  },
+  "verification_and_rollback": {
+    "verification_endpoint": "/api/config/verify_health",
+    "verification_fields": [
+      "is_healthy",
+      "flags",
+      "status"
+    ],
+    "rollback_status_endpoint": "/api/action/{action_id}/rollback-status",
+    "success_criteria": {
+      "is_healthy": true,
+      "no_anomaly_flags": true,
+      "status": "online"
+    },
+    "auto_rollback_trigger": "verification_failed",
+    "auto_rollback_timeout_seconds": 120
+  },
+  "incident_escalation": {
+    "escalation_triggers": [
+      "unknown_root_cause",
+      "blast_radius_exceeds_limit",
+      "conflicting_anomalies",
+      "repeated_failures",
+      "verification_failed"
+    ],
+    "escalation_tool": "escalate_to_noc",
+    "escalation_payload_fields": [
+      "severity",
+      "router",
+      "anomaly",
+      "diagnostics",
+      "blast_radius",
+      "recommended_next_steps"
+    ]
+  },
+  "cooldown_policies": {
+    "per_router_agent_trigger_seconds": 25,
+    "reason": "Prevent alert spam and allow verification time"
+  },
+  "timezone": "Asia/Kolkata",
+  "last_updated": "2026-03-08T00:00:00Z"
+}

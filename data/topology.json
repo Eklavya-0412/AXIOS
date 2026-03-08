@@ -1,0 +1,164 @@
+{
+  "routers": [
+    {
+      "name": "Core-Router-Mumbai",
+      "type": "core",
+      "location": "Mumbai",
+      "ip": "10.0.1.1",
+      "status": "online",
+      "interfaces": [
+        "Gi0/1",
+        "Gi0/2",
+        "Gi0/3",
+        "Gi0/4",
+        "Gi0/5"
+      ]
+    },
+    {
+      "name": "Core-Router-Delhi",
+      "type": "core",
+      "location": "Delhi",
+      "ip": "10.0.2.1",
+      "status": "online",
+      "interfaces": [
+        "Gi0/1",
+        "Gi0/2",
+        "Gi0/3",
+        "Gi0/4",
+        "Gi0/5"
+      ]
+    },
+    {
+      "name": "Core-Router-Bangalore",
+      "type": "core",
+      "location": "Bangalore",
+      "ip": "10.0.3.1",
+      "status": "online",
+      "interfaces": [
+        "Gi0/1",
+        "Gi0/2",
+        "Gi0/3",
+        "Gi0/4",
+        "Gi0/5"
+      ]
+    },
+    {
+      "name": "Core-Router-Chennai",
+      "type": "core",
+      "location": "Chennai",
+      "ip": "10.0.4.1",
+      "status": "online",
+      "interfaces": [
+        "Gi0/1",
+        "Gi0/2",
+        "Gi0/3",
+        "Gi0/4",
+        "Gi0/5"
+      ]
+    },
+    {
+      "name": "Edge-Router-North",
+      "type": "edge",
+      "location": "North Region",
+      "ip": "10.1.2.1",
+      "status": "online",
+      "interfaces": [
+        "Gi0/1",
+        "Gi0/2"
+      ]
+    },
+    {
+      "name": "Edge-Router-South",
+      "type": "edge",
+      "location": "South Region",
+      "ip": "10.1.5.1",
+      "status": "online",
+      "interfaces": [
+        "Gi0/1",
+        "Gi0/2"
+      ]
+    }
+  ],
+  "links": [
+    {
+      "name": "Core-Mumbai-Delhi",
+      "source": "Core-Router-Mumbai",
+      "target": "Core-Router-Delhi",
+      "bandwidth_gbps": 100,
+      "status": "active",
+      "type": "primary"
+    },
+    {
+      "name": "Core-Mumbai-Bangalore",
+      "source": "Core-Router-Mumbai",
+      "target": "Core-Router-Bangalore",
+      "bandwidth_gbps": 100,
+      "status": "active",
+      "type": "primary"
+    },
+    {
+      "name": "Core-Mumbai-Chennai",
+      "source": "Core-Router-Mumbai",
+      "target": "Core-Router-Chennai",
+      "bandwidth_gbps": 100,
+      "status": "active",
+      "type": "primary"
+    },
+    {
+      "name": "Core-Delhi-Bangalore",
+      "source": "Core-Router-Delhi",
+      "target": "Core-Router-Bangalore",
+      "bandwidth_gbps": 100,
+      "status": "active",
+      "type": "primary"
+    },
+    {
+      "name": "Core-Delhi-Chennai",
+      "source": "Core-Router-Delhi",
+      "target": "Core-Router-Chennai",
+      "bandwidth_gbps": 100,
+      "status": "active",
+      "type": "primary"
+    },
+    {
+      "name": "Core-Bangalore-Chennai",
+      "source": "Core-Router-Bangalore",
+      "target": "Core-Router-Chennai",
+      "bandwidth_gbps": 100,
+      "status": "active",
+      "type": "primary"
+    },
+    {
+      "name": "Edge-North-Delhi",
+      "source": "Edge-Router-North",
+      "target": "Core-Router-Delhi",
+      "bandwidth_gbps": 40,
+      "status": "active",
+      "type": "primary"
+    },
+    {
+      "name": "Edge-North-Mumbai",
+      "source": "Edge-Router-North",
+      "target": "Core-Router-Mumbai",
+      "bandwidth_gbps": 40,
+      "status": "active",
+      "type": "backup"
+    },
+    {
+      "name": "Edge-South-Bangalore",
+      "source": "Edge-Router-South",
+      "target": "Core-Router-Bangalore",
+      "bandwidth_gbps": 40,
+      "status": "active",
+      "type": "backup"
+    },
+    {
+      "name": "Edge-South-Chennai",
+      "source": "Edge-Router-South",
+      "target": "Core-Router-Chennai",
+      "bandwidth_gbps": 40,
+      "status": "active",
+      "type": "primary"
+    }
+  ]
+}
