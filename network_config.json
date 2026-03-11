@@ -1,9 +1,9 @@
 {
   "Core-Router-Mumbai": {
-    "status": "online",
+    "status": "offline",
     "current_route": "Primary-Link-A",
     "is_congested": false,
-    "bgp_down": false,
+    "bgp_down": true,
     "cpu_spiking": false,
     "interface_flapping": false
   },
@@ -25,7 +25,7 @@
   },
   "Core-Router-Chennai": {
     "status": "online",
-    "current_route": "Backup-via-Core-Router-Bangalore",
+    "current_route": "Primary-Link-A",
     "is_congested": false,
     "bgp_down": false,
     "cpu_spiking": false,

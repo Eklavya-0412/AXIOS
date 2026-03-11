@@ -140,9 +140,8 @@ def trace_class(line):
 # ─────────────────────────────────────────────
 # Sidebar
 # ─────────────────────────────────────────────
-with st.sidebar:
+with st.sidebar:    
     st.markdown("## Network Controllers")
-    st.markdown("🔮 **Predictive Forecasting**: Live Linear Regression active")
 
     # ─── LIVE ROUTER CONFIG (Digital Twin view) ───
     config_data = fetch_api("/network-config")
